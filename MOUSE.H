@@ -1,14 +1,14 @@
 #ifndef _MOUSE_H_
 #define _MOUSE_H_
 
-const   MOUSE_ENTERED       = 1;
-const   MOUSE_LEFT          = 2;
-const   MOUSE_OUTSIDE       = 3;
-const   MOUSE_INSIDE        = 4;
-const   BUTTON_DOWN         = 1;
-const   BUTTON_UP           = 2;
-const   BUTTON_STILL_DOWN   = 3;
-const   BUTTON_STILL_UP     = 4;
+const int MOUSE_ENTERED       = 1;
+const int MOUSE_LEFT          = 2;
+const int MOUSE_OUTSIDE       = 3;
+const int MOUSE_INSIDE        = 4;
+const int BUTTON_DOWN         = 1;
+const int BUTTON_UP           = 2;
+const int BUTTON_STILL_DOWN   = 3;
+const int BUTTON_STILL_UP     = 4;
 
 class TMouse
 {
@@ -31,4 +31,4 @@ private:
     int             visible;
 };
 
-#endif
+#endif

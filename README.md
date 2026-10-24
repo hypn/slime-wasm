@@ -32,3 +32,44 @@ To quit the simulation, hit space. Thats it for now. Enjoy yourself.
 
 
 **Compile with:** Borland Turbo C++ 3.x (make sure your "Options" -> "Directories" paths for "Libraries" and "Includes" are correct)
+
+## WebAssembly port
+
+The original code recompiled with Emscripten; only the DOS hardware layer is replaced.
+The simulation, rendering, button panel, banner and mouse logic are the original code.
+
+    ./build.sh web      # dist/index.html + slime.js + slime.wasm (serve dist/ over http)
+    tests/run.sh        # node build + screenshot comparison + scripted session (PNGs in tests/out/)
+
+Needs Emscripten (`~/emsdk`, or set `EMSDK_DIR`).
+
+### Layout
+- `*.CPP`, `*.H`  the original sources, patched minimally (`git diff` against the DOS fork point)
+- `shim/`   fake `dos.h`/`conio.h`/`alloc.h`/`mem.h`/`fstream.h`/`iostream.h` + `compat.h` (force-included)
+- `port/`   `platform.cpp`: VGA mode 13h VRAM + default DAC palette, INT 33h mouse, BIOS 8x8 text,
+            keyboard queue, BIOS tick clock, Borland `rand()`; `font8x8.h` (IBM BIOS font)
+- `web/`    thin page: canvas, pointer/keyboard events, requestAnimationFrame pacing
+
+### Patches to the original source
+- `putpixel`: `asm` write to `0xA000:offs` -> `vga_vram[offs]`.
+- `gr()`/`tx()`: INT 10h mode sets -> `bios_set_video_mode()`.
+- `MOUSE.CPP`: each INT 33h `asm` block -> an `int33_*` call (same driver semantics: show/hide counter, ranges, x/2).
+- `MOUSE.H`: `const X = 1;` -> `const int X = 1;` (implicit int).
+- Old Turbo C++ scoping let `for (int x ...)` leak `x` into the function, and later loops reuse it as
+  `for (x = ...)`. Those loops are untouched; `x` (and `l` in `drawBar`) is declared once at the top of
+  `clearWater`, `drawBar`, `n` and `water_step` so they still compile.
+- `water()`'s `while (!mustExit)` loop -> `water_init()` + `water_step()` (one iteration), locals made static;
+  `main()` -> `slime_start()`/`slime_stop()`. The loop body is unchanged.
+- `TMouse* mouse` points at a zeroed stub instead of NULL: `drawBar()` calls `mouse->hide()` before `new TMouse`
+  (read DS:0 on DOS).
+- `load()` returns if `c:\bitmap.bmp` can't be opened (the original read uninitialised stack).
+
+### Fidelity notes
+- Verified against `screenshot.png`: panel, borders, banner text and rule match pixel for pixel
+  (`tests/compare_screenshot.js`), including the random button noise, which depends on Borland's `rand()`
+  (seed 1, never randomized) and on `render()` consuming a `random()` during `gr()`.
+- Speed: DOS ran the loop unthrottled, so it depended on CPU. Here it is `SPS` iterations/s (default 60, `?sps=`
+  in the URL); render is every 3rd iteration as in the original.
+- Pixel shape: 4:3 like a CRT by default; a link under the canvas switches to square pixels.
+- Space quits (as original) and shows "press any key to restart", which boots a fresh instance.
+- Drop a BMP on the page, then press `L`, to use the hidden bitmap loader (`c:\bitmap.bmp` in the original).

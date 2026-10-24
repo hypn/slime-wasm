@@ -9,6 +9,7 @@
 #include <dos.h>
 #include <conio.h>
 #include "mouse.h"
+#include "vga.h"
 #include <fstream.h>
 #include <iostream.h>
 
@@ -26,7 +27,11 @@ void    drawline(float zx1, float zy1, float zx2, float zy2, int col);
 char    tlc         = DARKGRAY;
 
 char    field[320][200];
-TMouse* mouse;
+// Original: `TMouse* mouse;` (NULL until main()). drawBar() runs before `new TMouse`
+// and calls mouse->hide()/show() through the NULL pointer; on DOS that read the
+// DS:0 data instead of faulting. Point it at a zeroed stub so it stays defined.
+static char mouse_null_stub[256];
+TMouse* mouse = (TMouse*) mouse_null_stub;
 int     dens        = 2;
 int     rainmode    = 0;
 int     eraser      = 0;
@@ -57,6 +62,7 @@ void clearLines(void)
 
 void clearWater(void)
 {
+    int x;
     for (int x = 0; x < 300; x++)
     {
         for (int y = 0; y < 200; y++)
@@ -217,6 +223,7 @@ void drawBar()
 {
     bar(300, 0, 319, 199);
     char    i[16][16];
+    int     x, l;
     button[0] = new TButton;
     button[0]->x1 = 301;
     button[0]->y1 = 2;
@@ -513,6 +520,7 @@ void drawBar()
 
 void n(void)
 {
+    int x;
     for (int x = 0; x < 320; x++)
     {
         for (int y = 0; y < 200; y++)
@@ -734,13 +742,7 @@ void putpixel(int x, int y, char c)
     offs = x + y * 320;
     static unsigned char    d;
     d = c;
-    asm {
-        mov ax,0xA000
-        mov es,ax
-        mov bx,offs
-        mov cl,d
-        mov BYTE PTR es:[bx],cl;
-    }
+    vga_vram[offs] = d;
 }
 
 void render(void)
@@ -828,31 +830,44 @@ void render(void)
 
 void gr(void)
 {
-    asm {
-        mov ax,0x13;
-        int 0x10;
-    }
+    bios_set_video_mode(0x13);
     n();
     render();
 }
 
 void tx(void)
 {
-    asm {
-        mov ax,0x3;
-        int 0x10;
-    }
+    bios_set_video_mode(0x3);
 }
 
-void water(void)
+static long water_frames;
+static long water_s;
+static int  water_mustExit;
+static int  water_x1, water_y1, water_x2, water_y2;
+static int  water_hasLeft;
+
+void water_init(void)
 {
-    long    frames      = 0;
+    water_frames = 0;
+    water_s = clock();
+    water_mustExit = 0;
+    water_hasLeft = 0;
+}
+
+// One iteration of the original `while (!mustExit)` loop in water().
+// Returns 0 once the user has asked to quit.
+int water_step(void)
+{
+    long&   frames      = water_frames;
+    long&   s           = water_s;
+    int&    mustExit    = water_mustExit;
+    int&    x1          = water_x1;
+    int&    y1          = water_y1;
+    int&    x2          = water_x2;
+    int&    y2          = water_y2;
+    int&    hasLeft     = water_hasLeft;
     char    q, l, u, d, b, r = 0;
-    long    s           = clock();
-    int     mustExit    = 0;
-    int     x1, y1, x2, y2;
-    int     hasLeft     = 0;
-    while (!mustExit)
+    int     x;
     {
         if (kbhit())
         {
@@ -1082,6 +1097,7 @@ void water(void)
         }
     }
     s = -(s - clock());
+    return !mustExit;
 }
 
 void test()
@@ -1114,9 +1130,9 @@ void ran(void)
 
 void    doText(char* b);
 
-void main(int, char**)
+void slime_start(void)
 {
-    ((void *) (banner)) = farmalloc(3000);
+    banner = (char *) farmalloc(3000);
     doText(banner);
     tx();
     gr();
@@ -1124,7 +1140,11 @@ void main(int, char**)
     drawBar();
     mouse = new TMouse();
     mouse->hide();
-    water();
+    water_init();
+}
+
+void slime_stop(void)
+{
     delete mouse;
     tx();
     farfree(banner);
@@ -1134,6 +1154,10 @@ void load(void)
 {
     fstream r;
     r.open("c:\\bitmap.bmp", ios::in | ios::binary);
+    if (!r.is_open())
+    {
+        return;
+    }
     char    u[1024] =
     {
         0
